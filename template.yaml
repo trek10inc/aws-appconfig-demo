@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+
+Globals:
+  Function:
+    Runtime: python3.9
+    CodeUri: src
+    Timeout: 3
+
+
+Parameters:
+  ApplicationName:
+    Type: String
+    Default: demo-app
+  EnvironmentName:
+    Type: String
+  AppConfigExtensionArn:
+    Type: String
+    Default: arn:aws:lambda:us-east-1:027255383542:layer:AWS-AppConfig-Extension:61
+
+
+Resources:
+  HelloWorldFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      Layers:
+        - !Ref AppConfigExtensionArn
+      Environment:
+        Variables:
+          APPCONFIG_APPLICATION_NAME: !Ref AppConfigApplication
+          APPCONFIG_ENVIRONMENT_NAME: !Ref AppConfigEnvironment
+          APPCONFIG_CONFIG_NAME: !Ref AppConfigConfigurationProfile
+      Events:
+        HelloWorld:
+          Type: Api
+          Properties:
+            Path: /hello
+            Method: get
+      Policies:
+        - Statement:
+            - Sid: Admin
+              Effect: Allow
+              Action: '*'
+              Resource: '*'
+            - Sid: AllowGetAppConfig
+              Effect: Allow
+              Action:
+                - appconfig:StartConfigurationSession
+                - appconfig:GetLatestConfiguration
+              Resource: !Sub arn:aws:appconfig:${AWS::Region}:${AWS::AccountId}:application/${AppConfigApplication}/configurationprofile/${AppConfigConfigurationProfile}
+            - Sid: AllowExtension
+              Effect: Allow
+              Action: appconfig:GetConfiguration
+              Resource:
+                - !Sub arn:aws:appconfig:${AWS::Region}:${AWS::AccountId}:application/${AppConfigApplication}
+                - !Sub arn:aws:appconfig:${AWS::Region}:${AWS::AccountId}:application/${AppConfigApplication}/environment/${AppConfigEnvironment}
+                - !Sub arn:aws:appconfig:${AWS::Region}:${AWS::AccountId}:application/${AppConfigApplication}/configurationprofile/${AppConfigConfigurationProfile}
+
+  AppConfigApplication:
+    Type: AWS::AppConfig::Application
+    Properties:
+      Name: !Sub ${ApplicationName}-${EnvironmentName}
+
+  AppConfigEnvironment:
+    Type: AWS::AppConfig::Environment
+    Properties:
+      ApplicationId: !Ref AppConfigApplication
+      Name: !Sub ${EnvironmentName}
+
+  AppConfigConfigurationProfile:
+    Type: AWS::AppConfig::ConfigurationProfile
+    Properties:
+      ApplicationId: !Ref AppConfigApplication
+      Name: apiconfig
+      LocationUri: hosted
+      Type: AWS.Freeform
+
+  InitialConfiguration:
+    Type: AWS::AppConfig::HostedConfigurationVersion
+    Properties:
+      ApplicationId: !Ref AppConfigApplication
+      ConfigurationProfileId: !Ref AppConfigConfigurationProfile
+      ContentType: application/json
+      Content: |
+        {
+          "message": "Hello, World!"
+        }
+
+  InitialConfigurationDeployment:
+    Type: AWS::AppConfig::Deployment
+    Properties:
+      ApplicationId: !Ref AppConfigApplication
+      EnvironmentId: !Ref AppConfigEnvironment
+      ConfigurationProfileId: !Ref AppConfigConfigurationProfile
+      ConfigurationVersion: !Ref InitialConfiguration
+      DeploymentStrategyId: AppConfig.AllAtOnce
+
+
+Outputs:
+  Endpoint:
+    Value: !Sub https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/
